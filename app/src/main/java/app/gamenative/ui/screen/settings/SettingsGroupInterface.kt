@@ -102,6 +102,7 @@ import app.gamenative.ui.screen.auth.AmazonOAuthActivity
 import app.gamenative.service.amazon.AmazonAuthManager
 import app.gamenative.utils.PlatformOAuthHandlers
 import app.gamenative.utils.StorageUtils
+import app.gamenative.service.DownloadService
 import app.gamenative.utils.CustomGameScanner
 import app.gamenative.data.GameSource
 import app.gamenative.sync.FrontendSyncManager
@@ -672,7 +673,14 @@ fun SettingsGroupInterface(
         DisposableEffect(lifecycleOwner, ctx) {
             val observer = LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    sharedInternalAccess = StorageUtils.canAccessSharedInternalStorage(ctx)
+                    val nowAllowed = StorageUtils.canAccessSharedInternalStorage(ctx)
+                    if (nowAllowed != sharedInternalAccess) {
+                        sharedInternalAccess = nowAllowed
+                        lifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                            DownloadService.populateDownloadService(ctx)
+                            DownloadService.invalidateCache()
+                        }
+                    }
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
