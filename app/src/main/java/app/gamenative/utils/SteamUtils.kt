@@ -762,7 +762,7 @@ object SteamUtils {
         runCatching {
             val steamapps = File(ImageFs.find(context).wineprefix, "drive_c/Program Files (x86)/Steam/steamapps")
             val link = File(steamapps, "common/${gameDir.name}")
-            if (link.parentFile.isDirectory && !SharedSteamLibrary.repointWineLink(link, gameDir)) {
+            if (link.parentFile?.isDirectory == true && !SharedSteamLibrary.repointWineLink(link, gameDir)) {
                 Timber.w("Wine Steam game folder is not a symlink: ${link.absolutePath}")
             }
             val acf = File(steamapps, "appmanifest_${steamAppId}.acf")
