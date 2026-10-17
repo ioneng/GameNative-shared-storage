@@ -80,6 +80,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # Android SDK 36 Robolectric tests require JDK 21; APK builds above use JDK 17.
+      - name: Set up Java 21 for Robolectric
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
       - name: Run unit tests (${{ matrix.variant }})
         timeout-minutes: 45
         run: |
@@ -117,3 +124,14 @@ jobs:
           sleep 2
           kill "$tail_pid" || true
           exit $status
+
+      - name: Upload unit test reports (${{ matrix.variant }})
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameNative-${{ matrix.variant }}-test-reports
+          path: |
+            app/build/reports/tests/test${{ matrix.variant }}DebugUnitTest/
+            app/build/test-results/test${{ matrix.variant }}DebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
