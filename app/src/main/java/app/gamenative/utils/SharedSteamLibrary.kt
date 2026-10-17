@@ -30,7 +30,7 @@ internal object SharedSteamLibrary {
         } else if (Files.exists(path, NOFOLLOW_LINKS)) {
             return false
         }
-        if (!link.parentFile.isDirectory) return false
+        if (link.parentFile?.isDirectory != true) return false
         Files.createSymbolicLink(path, target.toPath())
         return true
     }
