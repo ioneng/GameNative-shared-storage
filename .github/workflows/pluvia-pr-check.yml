@@ -47,20 +47,31 @@ jobs:
           variant="${{ matrix.variant }}"
           variant_lower="${variant,,}"
           bundle="app/build/outputs/bundle/${variant_lower}Debug/app-${variant_lower}-debug.aab"
-          test -s "$bundle"
-          test -f "$HOME/.android/debug.keystore"
+          if [[ ! -s "$bundle" ]]; then
+            echo "::error::Expected Android App Bundle not found: $bundle"
+            find app/build/outputs/bundle -maxdepth 3 -type f -name "*.aab" -print || true
+            exit 1
+          fi
+          # Bundle builds do not reliably generate the default Android debug keystore.
+          debug_keystore="$RUNNER_TEMP/gamenative-shared-storage-debug.keystore"
+          keytool -genkeypair -noprompt -keystore "$debug_keystore" \
+            -alias androiddebugkey -storepass android -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
           java -jar tools/bundletool-all-1.17.2.jar build-apks \
             --bundle="$bundle" \
             --output="GameNative-${variant_lower}-debug.apks" \
             --mode=universal \
-            --ks="$HOME/.android/debug.keystore" \
+            --ks="$debug_keystore" \
             --ks-key-alias=androiddebugkey \
             --ks-pass=pass:android \
             --key-pass=pass:android
           unzip -p "GameNative-${variant_lower}-debug.apks" universal.apk \
             > "GameNative-shared-storage-${variant_lower}-debug.apk"
-          test -s "GameNative-shared-storage-${variant_lower}-debug.apk"
-
+          if [[ ! -s "GameNative-shared-storage-${variant_lower}-debug.apk" ]]; then
+            echo "::error::Bundletool did not produce a universal APK"
+            exit 1
+          fi
       - name: Upload installable debug APK (${{ matrix.variant }})
         uses: actions/upload-artifact@v4
         with:
