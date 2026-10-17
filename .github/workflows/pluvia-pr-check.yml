@@ -42,6 +42,8 @@ jobs:
 
       - name: Package installable debug APK (${{ matrix.variant }})
         shell: bash
+        env:
+          GAMENATIVE_DEBUG_KEYSTORE_BASE64: ${{ secrets.GAMENATIVE_DEBUG_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
           variant="${{ matrix.variant }}"
@@ -52,12 +54,20 @@ jobs:
             find app/build/outputs/bundle -maxdepth 3 -type f -name "*.aab" -print || true
             exit 1
           fi
-          # Bundle builds do not reliably generate the default Android debug keystore.
           debug_keystore="$RUNNER_TEMP/gamenative-shared-storage-debug.keystore"
-          keytool -genkeypair -noprompt -keystore "$debug_keystore" \
-            -alias androiddebugkey -storepass android -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          if [[ -n "$GAMENATIVE_DEBUG_KEYSTORE_BASE64" ]]; then
+            # The same repository secret signs every build, preserving debug app data on upgrade.
+            printf '%s' "$GAMENATIVE_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$debug_keystore"
+            echo "Using the persistent repository debug signing key"
+          else
+            # Bundle builds do not reliably generate the default Android debug keystore.
+            echo "::warning::GAMENATIVE_DEBUG_KEYSTORE_BASE64 is not set. This APK uses a one-off signing key and cannot update other debug builds without uninstalling."
+            keytool -genkeypair -noprompt -keystore "$debug_keystore" \
+              -alias androiddebugkey -storepass android -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          keytool -list -keystore "$debug_keystore" -storepass android -alias androiddebugkey > /dev/null
           java -jar tools/bundletool-all-1.17.2.jar build-apks \
             --bundle="$bundle" \
             --output="GameNative-${variant_lower}-debug.apks" \
