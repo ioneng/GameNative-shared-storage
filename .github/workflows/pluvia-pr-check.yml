@@ -45,6 +45,38 @@ jobs:
         uses: gradle/actions/wrapper-validation@v4
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+      - name: Build debug bundle (${{ matrix.variant }})
+        run: ./gradlew :app:bundle${{ matrix.variant }}Debug
+
+      - name: Package installable debug APK (${{ matrix.variant }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant="${{ matrix.variant }}"
+          variant_lower="${variant,,}"
+          bundle="app/build/outputs/bundle/${variant_lower}Debug/app-${variant_lower}-debug.aab"
+          test -s "$bundle"
+          test -f "$HOME/.android/debug.keystore"
+          java -jar tools/bundletool-all-1.17.2.jar build-apks \
+            --bundle="$bundle" \
+            --output="GameNative-${variant_lower}-debug.apks" \
+            --mode=universal \
+            --ks="$HOME/.android/debug.keystore" \
+            --ks-key-alias=androiddebugkey \
+            --ks-pass=pass:android \
+            --key-pass=pass:android
+          unzip -p "GameNative-${variant_lower}-debug.apks" universal.apk \
+            > "GameNative-shared-storage-${variant_lower}-debug.apk"
+          test -s "GameNative-shared-storage-${variant_lower}-debug.apk"
+
+      - name: Upload installable debug APK (${{ matrix.variant }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameNative-shared-storage-${{ matrix.variant }}-debug
+          path: GameNative-shared-storage-*-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run unit tests (${{ matrix.variant }})
         timeout-minutes: 45
         run: |
