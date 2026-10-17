@@ -159,8 +159,11 @@ object StorageUtils {
 
     fun ensureInstallRoot(dir: File): Boolean {
         if (!dir.isDirectory && !dir.mkdirs()) return false
-        runCatching { File(dir, ".nomedia").createNewFile() }
-        return true
+        return runCatching {
+            File.createTempFile(".gamenative-", ".probe", dir).delete()
+            File(dir, ".nomedia").createNewFile()
+            true
+        }.getOrDefault(false)
     }
 
     fun preferredInstallRoot(appFilesDir: File): String {
