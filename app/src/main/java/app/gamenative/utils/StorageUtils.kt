@@ -354,8 +354,10 @@ object StorageUtils {
 
                             while (sourceChannel.read(buffer).also { bytesRead = it } > 0) {
                                 buffer.flip()
-                                targetChannel.write(buffer)
-                                buffer.compact()
+                                while (buffer.hasRemaining()) {
+                                    targetChannel.write(buffer)
+                                }
+                                buffer.clear()
 
                                 bytesCopied += bytesRead
 
@@ -374,6 +376,9 @@ object StorageUtils {
                         }
                     }
 
+                    if (Files.size(targetFilePath) != fileSize) {
+                        throw IOException("Incomplete copy of $sourceFilePath")
+                    }
                     Files.delete(sourceFilePath)
                     withContext(Dispatchers.Main) {
                         onProgressUpdate(relativePath.toString(), 1f, filesMoved++, totalFiles)
