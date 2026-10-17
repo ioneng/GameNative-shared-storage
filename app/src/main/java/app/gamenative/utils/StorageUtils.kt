@@ -132,6 +132,19 @@ object StorageUtils {
 
     private const val PUBLIC_INSTALL_DIR_NAME = "GameNative"
 
+    fun sharedInternalFilesDir(context: Context): File? =
+        context.getExternalFilesDir(null)?.takeIf {
+            Environment.getExternalStorageState(it) == Environment.MEDIA_MOUNTED
+        }
+
+    fun canAccessSharedInternalStorage(context: Context): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
     /**
      * Maps an app-specific dir (<volume>/Android/data/<pkg>/files) to a public install root
      * (<volume>/GameNative). MediaProvider disables FUSE kernel caching under Android/data,
