@@ -2,6 +2,7 @@ package app.gamenative.ui.screen.settings
 
 import android.content.res.Configuration
 import android.os.Environment
+import android.os.Build
 import android.os.storage.StorageManager
 import java.io.File
 import androidx.compose.foundation.background
@@ -78,6 +79,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -99,6 +102,7 @@ import app.gamenative.ui.screen.auth.AmazonOAuthActivity
 import app.gamenative.service.amazon.AmazonAuthManager
 import app.gamenative.utils.PlatformOAuthHandlers
 import app.gamenative.utils.StorageUtils
+import app.gamenative.utils.CustomGameScanner
 import app.gamenative.data.GameSource
 import app.gamenative.sync.FrontendSyncManager
 import app.gamenative.ui.util.PlatformAuthUiHelpers
@@ -663,6 +667,17 @@ fun SettingsGroupInterface(
 
         val ctx = LocalContext.current
         val sm = ctx.getSystemService(StorageManager::class.java)
+        val lifecycleOwner = LocalLifecycleOwner.current
+        var sharedInternalAccess by remember { mutableStateOf(StorageUtils.canAccessSharedInternalStorage(ctx)) }
+        DisposableEffect(lifecycleOwner, ctx) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    sharedInternalAccess = StorageUtils.canAccessSharedInternalStorage(ctx)
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
 
         // All writable install target volumes (SD / USB / adopted primary storage).
         // getExternalFilesDirs misses USB OTG on most devices, so StorageUtils also
@@ -670,19 +685,33 @@ fun SettingsGroupInterface(
         // Runs off the composition thread because synthesizing the USB candidate
         // may need mkdirs() on first plug-in.
         val externalStorageFallbackLabel = stringResource(R.string.storage_external)
-        val dirs by produceState(initialValue = emptyList<File>(), ctx) {
+        val dirs by produceState(initialValue = emptyList<File>(), ctx, sharedInternalAccess) {
             value = withContext(Dispatchers.IO) {
-                StorageUtils.getAllExternalFilesDirs(ctx)
+                val volumes = StorageUtils.getAllExternalFilesDirs(ctx)
                     .filter { Environment.getExternalStorageState(it) == Environment.MEDIA_MOUNTED }
                     .filter { StorageUtils.isExternalInstallTarget(sm, it) }
+                val primary = if (sharedInternalAccess) StorageUtils.sharedInternalFilesDir(ctx) else null
+                (volumes + listOfNotNull(primary)).distinctBy { it.absolutePath }
             }
         }
 
-        // Labels the user sees
-        val labels = remember(dirs) {
+        val sharedInternalDir = StorageUtils.sharedInternalFilesDir(ctx)?.absolutePath
+        val labels = remember(dirs, sharedInternalDir) {
             dirs.map { dir ->
-                sm?.getStorageVolume(dir)?.getDescription(ctx) ?: externalStorageFallbackLabel
+                if (dir.absolutePath == sharedInternalDir) {
+                    ctx.getString(R.string.settings_interface_shared_internal_storage)
+                } else {
+                    sm?.getStorageVolume(dir)?.getDescription(ctx) ?: externalStorageFallbackLabel
+                }
             }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !sharedInternalAccess) {
+            SettingsMenuLink(
+                colors = settingsTileColorsAlt(),
+                title = { Text(stringResource(R.string.settings_interface_shared_storage_access)) },
+                subtitle = { Text(stringResource(R.string.settings_interface_shared_storage_access_hint)) },
+                onClick = { CustomGameScanner.requestManageExternalStoragePermission(ctx) },
+            )
         }
         var useExternalStorage by rememberSaveable { mutableStateOf(PrefManager.useExternalStorage) }
         SettingsSwitch(
@@ -719,8 +748,15 @@ fun SettingsGroupInterface(
                 items = labels,
                 value = selectedIndex,
                 onItemSelected = { idx ->
-                    selectedIndex = idx
-                    PrefManager.externalStoragePath = StorageUtils.preferredInstallRoot(dirs[idx])
+                    val preferred = StorageUtils.preferredInstallRoot(dirs[idx])
+                    if (dirs[idx].absolutePath == sharedInternalDir &&
+                        preferred == dirs[idx].absolutePath
+                    ) {
+                        SnackbarManager.show(ctx.getString(R.string.settings_interface_shared_storage_unavailable))
+                    } else {
+                        selectedIndex = idx
+                        PrefManager.externalStoragePath = preferred
+                    }
                 },
                 colors = settingsTileColorsAlt(),
             )
