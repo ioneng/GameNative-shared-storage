@@ -23,6 +23,16 @@ The path belongs to the current Android user; the `/storage/emulated/0` componen
 
 No symbolic link is created in Android's public emulated storage. GameNative keeps the Wine-side symbolic link in its private filesystem and repoints it after a move; DroidDeck makes its own library registration.
 
+## Migrating games from the original installed GameNative
+
+**Move or back up game files while the original installation is still present.** Its default Steam game path is under the private Android app-data directory (`context.dataDir/Steam/steamapps/common`), not under public shared storage. A new CI build signed with a different key cannot replace the original installation while retaining its data. Uninstalling the original will normally remove its private games and Wine prefixes.
+
+If the original installation is still working, a supported route is to use its storage manager to move installed games to a **removable USB/SD public GameNative folder** before switching APKs, then copy those folders into `/storage/emulated/0/GameNative/Steam/steamapps/common` (preserve hidden `.DownloadInfo` and marker files). Back up saves and private Wine prefixes separately. Do not uninstall until the backups and external copies have been verified. The new fork can then be configured to use the public library.
+
+If the games were originally in public shared storage already, no game copy is needed. Grant All files access, select Shared internal storage and restart GameNative if an install was not discovered. The user must sign into their Steam account to see entitled games.
+
+CI debug APKs normally use a newly generated test signing key for each run. To keep subsequent *fork debug builds* update-compatible, configure the GitHub Actions secret `GAMENATIVE_DEBUG_KEYSTORE_BASE64` with a base64-encoded JKS/PKCS12 keystore containing alias `androiddebugkey`, with store and key passwords `android`. This **does not** confer compatibility with the independently signed upstream GameNative app or an earlier one-off debug build.
+
 ## Limitations and risks
 
 - All-files access is a powerful Android permission, particularly in the Modern flavor. Do not enable shared storage unless you want this access.
