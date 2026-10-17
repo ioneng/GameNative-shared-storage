@@ -23,6 +23,7 @@ internal object SharedSteamLibrary {
     }
 
     fun repointWineLink(link: File, target: File): Boolean {
+        if (!target.isDirectory) return false
         val path = link.toPath()
         if (Files.isSymbolicLink(path)) {
             if (Files.readSymbolicLink(path) == target.toPath()) return true
