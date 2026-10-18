@@ -82,6 +82,23 @@ jobs:
             echo "::error::Bundletool did not produce a universal APK"
             exit 1
           fi
+      - name: Verify Modern APK includes All files access permission
+        if: matrix.variant == 'Modern'
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="GameNative-shared-storage-modern-debug.apk"
+          aapt="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
+          if [[ -z "$aapt" || ! -x "$aapt" ]]; then
+            echo "::error::Android aapt tool is missing"
+            exit 1
+          fi
+          "$aapt" dump permissions "$apk" | tee "$RUNNER_TEMP/modern-apk-permissions.txt"
+          if ! grep -Fq "android.permission.MANAGE_EXTERNAL_STORAGE" "$RUNNER_TEMP/modern-apk-permissions.txt"; then
+            echo "::error::Modern APK is missing MANAGE_EXTERNAL_STORAGE"
+            exit 1
+          fi
+
       - name: Upload installable debug APK (${{ matrix.variant }})
         uses: actions/upload-artifact@v4
         with:
