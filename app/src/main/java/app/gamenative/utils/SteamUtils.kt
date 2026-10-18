@@ -758,6 +758,18 @@ object SteamUtils {
         ).isNotEmpty()
     }
 
+    fun syncMovedGameToSharedLibrary(context: Context, steamAppId: Int, gameDir: File) {
+        runCatching {
+            val steamapps = File(ImageFs.find(context).wineprefix, "drive_c/Program Files (x86)/Steam/steamapps")
+            val link = File(steamapps, "common/${gameDir.name}")
+            if (link.parentFile?.isDirectory == true && !SharedSteamLibrary.repointWineLink(link, gameDir)) {
+                Timber.w("Wine Steam game folder is not a symlink: ${link.absolutePath}")
+            }
+            val acf = File(steamapps, "appmanifest_${steamAppId}.acf")
+            SharedSteamLibrary.publishManifest(acf, SharedSteamLibrary.sharedSteamapps(gameDir))
+        }.onFailure { Timber.w(it, "Could not synchronize moved Steam game %s", steamAppId) }
+    }
+
     private fun createAppManifest(context: Context, steamAppId: Int, language: String) {
         try {
             Timber.i("Attempting to createAppManifest for appId: $steamAppId")
@@ -786,11 +798,9 @@ object SteamUtils {
             val gameName = gameDir.name
             val sizeOnDisk = calculateDirectorySize(gameDir)
 
-            // Create symlink from Steam common directory to actual game directory
             val steamGameLink = File(commonDir, gameName)
-            if (!steamGameLink.exists()) {
-                Files.createSymbolicLink(steamGameLink.toPath(), gameDir.toPath())
-                Timber.i("Created symlink from ${steamGameLink.absolutePath} to ${gameDir.absolutePath}")
+            if (!SharedSteamLibrary.repointWineLink(steamGameLink, gameDir)) {
+                Timber.w("Existing non-symlink Steam folder left untouched: ${steamGameLink.absolutePath}")
             }
 
             val installedBranch = SteamService.getInstalledApp(steamAppId)?.branch ?: "public"
@@ -871,6 +881,7 @@ object SteamUtils {
             // Write ACF file
             val acfFile = File(steamappsDir, "appmanifest_$steamAppId.acf")
             acfFile.writeText(acfContent)
+            SharedSteamLibrary.publishManifest(acfFile, SharedSteamLibrary.sharedSteamapps(gameDir))
 
             Timber.i("Created ACF manifest for ${appInfo.name} at ${acfFile.absolutePath}")
 

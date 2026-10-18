@@ -41,10 +41,15 @@ object DownloadService {
         val appFilesDirs = StorageUtils.getAllExternalFilesDirs(context)
             .filter { Environment.getExternalStorageState(it) == Environment.MEDIA_MOUNTED }
             .filter { StorageUtils.isExternalInstallTarget(sm, it) }
-        // both layouts per volume: legacy Android/data (existing installs) + public root (new installs)
-        externalVolumePaths = appFilesDirs
-            .flatMap { dir -> listOfNotNull(dir.absolutePath, StorageUtils.publicInstallRoot(dir)?.absolutePath) }
-            .distinct()
+        // Keep previously moved public installs discoverable even if the preferred target changes.
+        val sharedInternalRoot = if (StorageUtils.canAccessSharedInternalStorage(context)) {
+            StorageUtils.sharedInternalFilesDir(context)?.let(StorageUtils::publicInstallRoot)
+        } else null
+        externalVolumePaths = (
+            appFilesDirs.flatMap { dir ->
+                listOfNotNull(dir.absolutePath, StorageUtils.publicInstallRoot(dir)?.absolutePath)
+            } + listOfNotNull(sharedInternalRoot?.absolutePath)
+        ).distinct()
 
         migrateExternalStoragePath()
     }

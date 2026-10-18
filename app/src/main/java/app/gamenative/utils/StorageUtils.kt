@@ -132,6 +132,19 @@ object StorageUtils {
 
     private const val PUBLIC_INSTALL_DIR_NAME = "GameNative"
 
+    fun sharedInternalFilesDir(context: Context): File? =
+        context.getExternalFilesDir(null)?.takeIf {
+            Environment.getExternalStorageState(it) == Environment.MEDIA_MOUNTED
+        }
+
+    fun canAccessSharedInternalStorage(context: Context): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
     /**
      * Maps an app-specific dir (<volume>/Android/data/<pkg>/files) to a public install root
      * (<volume>/GameNative). MediaProvider disables FUSE kernel caching under Android/data,
@@ -146,8 +159,11 @@ object StorageUtils {
 
     fun ensureInstallRoot(dir: File): Boolean {
         if (!dir.isDirectory && !dir.mkdirs()) return false
-        runCatching { File(dir, ".nomedia").createNewFile() }
-        return true
+        return runCatching {
+            File.createTempFile(".gamenative-", ".probe", dir).delete()
+            File(dir, ".nomedia").createNewFile()
+            true
+        }.getOrDefault(false)
     }
 
     fun preferredInstallRoot(appFilesDir: File): String {
@@ -338,8 +354,10 @@ object StorageUtils {
 
                             while (sourceChannel.read(buffer).also { bytesRead = it } > 0) {
                                 buffer.flip()
-                                targetChannel.write(buffer)
-                                buffer.compact()
+                                while (buffer.hasRemaining()) {
+                                    targetChannel.write(buffer)
+                                }
+                                buffer.clear()
 
                                 bytesCopied += bytesRead
 
@@ -358,6 +376,9 @@ object StorageUtils {
                         }
                     }
 
+                    if (Files.size(targetFilePath) != fileSize) {
+                        throw IOException("Incomplete copy of $sourceFilePath")
+                    }
                     Files.delete(sourceFilePath)
                     withContext(Dispatchers.Main) {
                         onProgressUpdate(relativePath.toString(), 1f, filesMoved++, totalFiles)

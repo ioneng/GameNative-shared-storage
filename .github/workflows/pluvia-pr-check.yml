@@ -27,24 +27,93 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: Inject credentials
-        if: github.event.pull_request.head.repo.full_name == github.repository
+      - name: Use dummy analytics credentials for PR builds
         run: |
-          cat <<EOF > local.properties
-          POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
-          POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
-          EOF
-      - name: Inject dummy credentials
-        if: github.event.pull_request.head.repo.full_name != github.repository
-        run: |
-          cat <<EOF > local.properties
-          POSTHOG_API_KEY=dummy
-          POSTHOG_HOST=https://us.i.posthog.com
+          cat > local.properties <<'EOF'
+          POSTHOG_API_KEY="dummy"
+          POSTHOG_HOST="https://us.i.posthog.com"
           EOF
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+      - name: Build debug bundle (${{ matrix.variant }})
+        run: ./gradlew :app:bundle${{ matrix.variant }}Debug
+
+      - name: Package installable debug APK (${{ matrix.variant }})
+        shell: bash
+        env:
+          GAMENATIVE_DEBUG_KEYSTORE_BASE64: ${{ secrets.GAMENATIVE_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          variant="${{ matrix.variant }}"
+          variant_lower="${variant,,}"
+          bundle="app/build/outputs/bundle/${variant_lower}Debug/app-${variant_lower}-debug.aab"
+          if [[ ! -s "$bundle" ]]; then
+            echo "::error::Expected Android App Bundle not found: $bundle"
+            find app/build/outputs/bundle -maxdepth 3 -type f -name "*.aab" -print || true
+            exit 1
+          fi
+          debug_keystore="$RUNNER_TEMP/gamenative-shared-storage-debug.keystore"
+          if [[ -n "$GAMENATIVE_DEBUG_KEYSTORE_BASE64" ]]; then
+            # The same repository secret signs every build, preserving debug app data on upgrade.
+            printf '%s' "$GAMENATIVE_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$debug_keystore"
+            echo "Using the persistent repository debug signing key"
+          else
+            # Bundle builds do not reliably generate the default Android debug keystore.
+            echo "::warning::GAMENATIVE_DEBUG_KEYSTORE_BASE64 is not set. This APK uses a one-off signing key and cannot update other debug builds without uninstalling."
+            keytool -genkeypair -noprompt -keystore "$debug_keystore" \
+              -alias androiddebugkey -storepass android -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          keytool -list -keystore "$debug_keystore" -storepass android -alias androiddebugkey > /dev/null
+          java -jar tools/bundletool-all-1.17.2.jar build-apks \
+            --bundle="$bundle" \
+            --output="GameNative-${variant_lower}-debug.apks" \
+            --mode=universal \
+            --ks="$debug_keystore" \
+            --ks-key-alias=androiddebugkey \
+            --ks-pass=pass:android \
+            --key-pass=pass:android
+          unzip -p "GameNative-${variant_lower}-debug.apks" universal.apk \
+            > "GameNative-shared-storage-${variant_lower}-debug.apk"
+          if [[ ! -s "GameNative-shared-storage-${variant_lower}-debug.apk" ]]; then
+            echo "::error::Bundletool did not produce a universal APK"
+            exit 1
+          fi
+      - name: Verify Modern APK includes All files access permission
+        if: matrix.variant == 'Modern'
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="GameNative-shared-storage-modern-debug.apk"
+          aapt="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
+          if [[ -z "$aapt" || ! -x "$aapt" ]]; then
+            echo "::error::Android aapt tool is missing"
+            exit 1
+          fi
+          "$aapt" dump permissions "$apk" | tee "$RUNNER_TEMP/modern-apk-permissions.txt"
+          if ! grep -Fq "android.permission.MANAGE_EXTERNAL_STORAGE" "$RUNNER_TEMP/modern-apk-permissions.txt"; then
+            echo "::error::Modern APK is missing MANAGE_EXTERNAL_STORAGE"
+            exit 1
+          fi
+
+      - name: Upload installable debug APK (${{ matrix.variant }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameNative-shared-storage-${{ matrix.variant }}-debug
+          path: GameNative-shared-storage-*-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      # Android SDK 36 Robolectric tests require JDK 21; APK builds above use JDK 17.
+      - name: Set up Java 21 for Robolectric
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
       - name: Run unit tests (${{ matrix.variant }})
         timeout-minutes: 45
         run: |
@@ -82,3 +151,14 @@ jobs:
           sleep 2
           kill "$tail_pid" || true
           exit $status
+
+      - name: Upload unit test reports (${{ matrix.variant }})
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameNative-${{ matrix.variant }}-test-reports
+          path: |
+            app/build/reports/tests/test${{ matrix.variant }}DebugUnitTest/
+            app/build/test-results/test${{ matrix.variant }}DebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14

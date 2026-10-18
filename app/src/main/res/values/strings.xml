@@ -1391,6 +1391,10 @@
     <string name="settings_interface_no_external_storage">No external storage detected</string>
     <string name="settings_interface_external_storage_subtitle">Save games to external storage</string>
     <string name="settings_interface_storage_volume_title">Storage volume</string>
+    <string name="settings_interface_shared_internal_storage">Shared internal storage (GameNative)</string>
+    <string name="settings_interface_shared_storage_access">Enable shared storage access</string>
+    <string name="settings_interface_shared_storage_access_hint">Grant all-files access to use one Steam game library with other launchers. Optional.</string>
+    <string name="settings_interface_shared_storage_unavailable">Cannot create the public GameNative folder. Check storage permission.</string>
     <string name="settings_interface_download_server_title">Steam Download Server</string>
     <string name="settings_interface_restart_required_title">Restart Required</string>
 

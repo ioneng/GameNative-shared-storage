@@ -537,15 +537,22 @@ object CustomGameScanner {
                 return true
             } catch (e: Exception) {
                 Timber.tag("CustomGameScanner").e(e, "Failed to open settings for MANAGE_EXTERNAL_STORAGE")
-                // Fallback: try generic app settings
+                // Some Android variants do not implement the app-specific page.
+                // Fall back to the system's All files access list before App Info.
                 try {
-                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                    intent.data = Uri.parse("package:${context.packageName}")
-                    context.startActivity(intent)
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
                     return true
                 } catch (e2: Exception) {
-                    Timber.tag("CustomGameScanner").e(e2, "Failed to open app settings")
-                    return false
+                    Timber.tag("CustomGameScanner").e(e2, "Failed to open All files access settings")
+                    try {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        intent.data = Uri.parse("package:${context.packageName}")
+                        context.startActivity(intent)
+                        return true
+                    } catch (e3: Exception) {
+                        Timber.tag("CustomGameScanner").e(e3, "Failed to open app settings")
+                        return false
+                    }
                 }
             }
         }
